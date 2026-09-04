@@ -141,7 +141,65 @@ header h1 {
   margin-bottom: 20px;
 }
 
+/* Selection bar */
+
+.selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.selection-count strong {
+  color: var(--text-h);
+}
+
+.selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.selection-actions button {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-family: var(--sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.selection-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.selection-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* Table */
+
+.select-cell {
+  width: 34px;
+  text-align: center;
+}
+
+.select-cell input {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
 
 .table-wrap {
   overflow-x: auto;

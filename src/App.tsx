@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { StreetSearch } from './components/StreetSearch'
 import { StreetSummary } from './components/StreetSummary'
 import { StreetMap } from './components/StreetMap'
 import { WegvakTable } from './components/WegvakTable'
+import { SelectionBar } from './components/SelectionBar'
 import { WkdThemesPanel } from './components/WkdThemesPanel'
 import { RijkswegPanel } from './components/RijkswegPanel'
 import { InfoButton } from './components/InfoButton'
@@ -27,7 +28,8 @@ function App() {
   const [place, setPlace] = useState<LookupDoc | null>(null)
   const [data, setData] = useState<WegvakFeatureCollection | null>(null)
   const [status, setStatus] = useState<Status>('idle')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  /** Geselecteerde wegvakken, op wvk_id — de sleutel waarmee alle bronnen koppelen. */
+  const [selectedWvkIds, setSelectedWvkIds] = useState<Set<number>>(new Set())
 
   const [maxSnelheden, setMaxSnelheden] = useState<Map<number, MaxSnelheidRecord[]>>(new Map())
   const [wkdThemes, setWkdThemes] = useState<WkdThemeResult[]>([])
@@ -36,10 +38,32 @@ function App() {
   // Guards the extra (WKD/speed/rijksweg) fetches against a stale search overwriting a newer one.
   const searchTokenRef = useRef(0)
 
+  const toggleWegvak = useCallback((wvkId: number) => {
+    setSelectedWvkIds((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(wvkId)) next.add(wvkId)
+      return next
+    })
+  }, [])
+
+  /** Zet een reeks wegvakken in één keer aan of uit (shift-klik, "alles selecteren"). */
+  const setWegvakkenSelected = useCallback((wvkIds: number[], selected: boolean) => {
+    setSelectedWvkIds((prev) => {
+      const next = new Set(prev)
+      for (const id of wvkIds) {
+        if (selected) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }, [])
+
+  const clearSelection = useCallback(() => setSelectedWvkIds(new Set()), [])
+
   async function handleSelect(doc: LookupDoc) {
     const token = ++searchTokenRef.current
     setPlace(doc)
-    setSelectedId(null)
+    setSelectedWvkIds(new Set())
     setStatus('loading')
     setMaxSnelheden(new Map())
     setWkdThemes([])
@@ -113,13 +137,20 @@ function App() {
               <StreetMap
                 datasetKey={`${place.gemeentenaam}-${place.straatnaam}`}
                 data={data}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
+                selectedWvkIds={selectedWvkIds}
+                onToggle={toggleWegvak}
+              />
+              <SelectionBar
+                features={data.features}
+                selectedWvkIds={selectedWvkIds}
+                onSetSelected={setWegvakkenSelected}
+                onClear={clearSelection}
               />
               <WegvakTable
                 features={data.features}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
+                selectedWvkIds={selectedWvkIds}
+                onToggle={toggleWegvak}
+                onSetSelected={setWegvakkenSelected}
                 maxSnelheden={maxSnelheden}
               />
               <RijkswegPanel details={rijkswegDetails} />

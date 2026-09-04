@@ -243,7 +243,8 @@ src/
     StreetSearch.tsx   debounced autocomplete (300ms, AbortController per keystroke)
     StreetSummary.tsx  aggregated card
     StreetMap.tsx      react-leaflet + PDOK BRT tiles, click-to-highlight
-    WegvakTable.tsx    per-segment table incl. speed-limit column
+    WegvakTable.tsx    per-segment table incl. speed-limit column + selectievakjes
+    SelectionBar.tsx   selectietelling/lengte, alles/wissen, wegvak-id's kopiëren
     WkdThemesPanel.tsx one card per matched WKD theme
     RijkswegPanel.tsx  WEGGEG lanes + time-based limits (conditional)
     InfoButton.tsx     reusable "ⓘ" popover (position:fixed to escape table scroll)
@@ -256,6 +257,18 @@ src/
 `App.tsx` orchestrates: search → lookup → `fetchWegvakken` → then fans out the three extra fetches
 using the resulting `wvk_id`s, guarded by a `searchTokenRef` so a stale response can't overwrite a
 newer search.
+
+**Selectie.** `App.tsx` houdt een `Set<number>` van geselecteerde `wvk_id`s bij (niet de GeoJSON
+feature-id — `wvk_id` is de sleutel waarmee alle bronnen koppelen, dus dat is wat je verder wilt
+gebruiken). Kaart en tabel delen die state, dus ze blijven altijd in sync. Twee dingen om te weten
+bij wijzigingen:
+
+- De kaartlaag wordt **niet** geremount bij selectie. `react-leaflet`'s `<GeoJSON>` past een
+  gewijzigde `style`-prop na mount niet meer toe, dus de eerste versie forceerde een remount via
+  `key`. Bij 363 features is dat te traag; nu wordt er via een ref imperatief `setStyle` aangeroepen
+  per laag (gemeten: 32 ms voor één klik, 31 ms voor alle 363 tegelijk).
+- De klikhandler wordt één keer per feature gebonden, dus `onToggle` wordt via een ref gelezen —
+  anders vangt de closure een verouderde selectie.
 
 ---
 
@@ -283,6 +296,13 @@ nothing. Added the `wegnummer` lookup path plus automatic detection of which que
 exposed two follow-on limits — the ~2048-char ArcGIS query string (fixed with chunking) and
 request-storm starvation on big roads (fixed with the WKD/WEGGEG budgets) — and one unhandled
 `AbortError` from an uncaught rejection on the supplementary fetches.
+
+**Session 5 — meervoudige selectie.** Selectie ging van één wegvak naar een `Set` van wegvakken,
+als opstap naar het selecteren van specifieke delen van een weg. Klikken in de tabel of op de kaart
+zet een wegvak aan/uit, shift-klik selecteert een aaneengesloten reeks rijen, en er is een
+selectiebalk met aantal + opgetelde lengte, "alles selecteren", "selectie wissen" en het kopiëren
+van de geselecteerde `wvk_id`s naar het klembord. Niet-geselecteerde wegvakken vervagen op de kaart
+zodra er iets geselecteerd is.
 
 ---
 
