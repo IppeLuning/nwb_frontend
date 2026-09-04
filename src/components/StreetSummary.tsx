@@ -1,5 +1,7 @@
 import type { LookupDoc, WegvakFeature } from '../types/nwb'
 import { formatLength } from '../lib/fieldLabels'
+import { SUMMARY_INFO } from '../lib/infoTexts'
+import { InfoButton } from './InfoButton'
 
 interface StreetSummaryProps {
   place: LookupDoc
@@ -11,6 +13,15 @@ export function StreetSummary({ place, features }: StreetSummaryProps) {
   const roadTypes = uniqueNonEmpty(features.map((f) => f.properties.wgtype_oms))
   const authorities = uniqueNonEmpty(features.map((f) => f.properties.wegbehnaam))
 
+  const entries: [string, string][] = [
+    ['Gemeente', place.gemeentenaam],
+    ['Provincie', place.provincienaam],
+    ['Wegvakken', String(features.length)],
+    ['Totale lengte', formatLength(totalLength)],
+    ['Wegtype(n)', roadTypes.length ? roadTypes.join(', ') : '—'],
+    ['Wegbeheerder(s)', authorities.length ? authorities.join(', ') : '—'],
+  ]
+
   return (
     <section className="summary-card">
       <h2>
@@ -18,30 +29,15 @@ export function StreetSummary({ place, features }: StreetSummaryProps) {
         <span className="summary-place">, {place.woonplaatsnaam}</span>
       </h2>
       <dl className="summary-grid">
-        <div>
-          <dt>Gemeente</dt>
-          <dd>{place.gemeentenaam}</dd>
-        </div>
-        <div>
-          <dt>Provincie</dt>
-          <dd>{place.provincienaam}</dd>
-        </div>
-        <div>
-          <dt>Wegvakken</dt>
-          <dd>{features.length}</dd>
-        </div>
-        <div>
-          <dt>Totale lengte</dt>
-          <dd>{formatLength(totalLength)}</dd>
-        </div>
-        <div>
-          <dt>Wegtype(n)</dt>
-          <dd>{roadTypes.length ? roadTypes.join(', ') : '—'}</dd>
-        </div>
-        <div>
-          <dt>Wegbeheerder(s)</dt>
-          <dd>{authorities.length ? authorities.join(', ') : '—'}</dd>
-        </div>
+        {entries.map(([label, value]) => (
+          <div key={label}>
+            <dt>
+              {label}
+              {SUMMARY_INFO[label] && <InfoButton label={label} text={SUMMARY_INFO[label]} />}
+            </dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
       </dl>
     </section>
   )

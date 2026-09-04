@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from './http'
 import type { WegvakFeatureCollection } from '../types/nwb'
 
 const BASE = 'https://api.pdok.nl/rws/nationaal-wegenbestand-wegen/ogc/v1'
@@ -18,7 +19,7 @@ export async function fetchWegvakken(
     `?stt_naam=${encodeURIComponent(straatnaam)}` +
     `&gme_naam=${encodeURIComponent(gemeentenaam)}` +
     `&f=json&limit=1000`
-  const res = await fetch(url, { signal })
+  const res = await fetchWithTimeout(url, signal)
   if (!res.ok) throw new Error(`NWB wegvakken request failed: ${res.status}`)
   return res.json()
 }
