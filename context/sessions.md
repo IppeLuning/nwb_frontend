@@ -57,7 +57,16 @@ All five are public, key-less and CORS-enabled.
 | Endpoint | Use |
 |---|---|
 | `/suggest?q=<term>&fq=type:weg&rows=10` | Autocomplete-as-you-type. Returns `{id, weergavenaam}` only. |
-| `/lookup?id=<id>` | Full record: `straatnaam` (correct casing), `gemeentenaam`, `woonplaatsnaam`, `provincienaam`, `centroide_ll`, BAG `identificatie`. |
+| `/lookup?id=<id>` | Full record: `straatnaam` (correct casing), `gemeentenaam`, `woonplaatsnaam`, `provincienaam`, `centroide_ll`, `identificatie`, `bron`. |
+
+**Two kinds of hit come back, and they need different NWB queries:**
+
+| | ordinary street | road number |
+|---|---|---|
+| `bron` | `BAG/NWB` | `NWB` |
+| `woonplaatsnaam` | set | **null** |
+| `straatnaam` | `Damrak` | `A10`, `N57` |
+| NWB lookup | `stt_naam` | `wegnummer` (see 3.2) |
 
 **Why it exists in this app:** the NWB can only match a street name *exactly and case-sensitively*,
 so users can't be trusted to type it. Locatieserver also resolves *which* municipality — the same
@@ -77,6 +86,19 @@ Collections: `wegvakken`, `hectopunten`.
 - Only **5 properties are filterable**: `gme_naam`, `stt_naam`, `wegbehsrt`, `wegnummer`, `wvk_id`.
 - `stt_naam` is **exact and case-sensitive** — `bekhof` returns 0 results, `Bekhof` works.
 - **No CQL / partial matching.** `filter=... LIKE ...` → `400 CQL support is not enabled`.
+
+**Motorways are looked up differently.** A road number is *not* a `stt_naam` — searching
+`stt_naam=A10` returns nothing. Those segments live under `WEGNUMMER`, **without the letter and
+zero-padded to three characters**: `A10` → `010`, `N57` → `057`, `A2` → `002`. Unpadded (`10`) and
+letter forms (`A10`) both return 0 results.
+
+```
+/collections/wegvakken/items?wegnummer=010&gme_naam=Amsterdam&f=json&limit=1000
+```
+
+`src/api/nwb.ts` picks the right query automatically via `fetchWegvakkenForPlace(doc)`.
+Note that some motorway segments *also* carry a real street name ("Rijksweg A2"), so both paths
+can reach the same road — both are supported.
 
 ### 3.3 RWS "Maximum snelheden wegen" — speed limits (all roads)
 `https://geo.rijkswaterstaat.nl/arcgis/rest/services/GDR/maximum_snelheden_wegen/MapServer`
@@ -167,6 +189,19 @@ These cost real debugging time; don't rediscover them.
    for "the first card to appear" will therefore read the DOM far too early — wait a fixed ~10s
    instead.
 
+6. **The ArcGIS query string is capped at ~2048 characters.** Over that, the server answers
+   **404** (not a helpful error). Measured: 150 ids ≈ 1945 chars works, 200 ids ≈ 2545 chars
+   fails. `queryArcgisLayer` therefore chunks at **120 ids** per request and merges the results.
+   This only shows up on motorways — the A10 in Amsterdam is 363 wegvakken.
+
+7. **Big roads need request budgets, or they starve themselves.** With 363 wegvakken, 26 WKD
+   layers × 4 chunks = 104 concurrent requests; they queue behind each other, blow the 12s
+   timeout, and *fewer* themes end up rendering than if you'd asked for less. Current budgets:
+   WKD is capped at `MAX_WKD_WEGVAKKEN = 120` ids (one chunk per layer) and WEGGEG at
+   `MAX_WEGGEG_WEGVAKKEN = 25` wegvakken (it costs 2 requests each). Both caps are stated in the
+   UI rather than silently applied. The speed-limit layer is *not* capped — it's a single layer,
+   so the table column stays complete.
+
 ---
 
 ## 5. Code tables
@@ -242,6 +277,13 @@ field names (`vtgngr_h` → "Voetganger (heen)") and values (`j`/`n` → Ja/Nee)
 `wegbreedte` show its van–tot stretch plus the min/max spread. All copy sourced from the official
 NDW/Rijkswaterstaat documentation.
 
+**Session 4 — motorways.** Searching a highway returned an empty page: the Locatieserver happily
+suggests "A10, Amsterdam", but the NWB has no `stt_naam` of `A10`, so the follow-up query found
+nothing. Added the `wegnummer` lookup path plus automatic detection of which query to use. That
+exposed two follow-on limits — the ~2048-char ArcGIS query string (fixed with chunking) and
+request-storm starvation on big roads (fixed with the WKD/WEGGEG budgets) — and one unhandled
+`AbortError` from an uncaught rejection on the supplementary fetches.
+
 ---
 
 ## 8. Verifying changes
@@ -255,7 +297,9 @@ Manual test streets, each exercising a different path:
 | `Bekhof` | Ambiguous name — two suggestions (Oldeberkoop / Yerseke) resolving to different data |
 | `Damrak, Amsterdam` | Ordinary city street: 20 wegvakken, 30 km/h, ~10 WKD themes, no Rijksweg panel |
 | `Faelweg, Vrouwenpolder` | Rijk-managed parallel road: has WKD + speed data, but correctly **no** Rijksweg panel |
-| `Rijksweg A2, Beek` | Real motorway: Rijksweg panel with lane config + 130/100 km/h time windows |
+| `Rijksweg A2, Beek` | Motorway reached via its BAG street name: 21 wegvakken, Rijksweg panel with lane config + 130/100 km/h time windows |
+| `A10, Amsterdam` | Motorway via **wegnummer**: 363 wegvakken, the full ring drawn on the map, chunked ArcGIS queries, both caps visible |
+| `N57` | N-road via wegnummer: 83 wegvakken |
 
 Browser-driven testing was done with `puppeteer-core` pointed at the system Chrome
 (`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`), checking console errors, failed
@@ -273,8 +317,12 @@ requests, and rendered DOM. Watch the network tab for CORS errors on both PDOK a
 
 ## 10. Known rough edges
 
-- A Damrak result page is ~14,000px tall. Some theme cards are repetitive (e.g.
-  Vrachtwagentolheffingsnetwerk prints "Heffingsnetwerk: Nee" 15 times). Collapsing cards by
-  default and deduping single-value themes is the obvious next improvement.
-- Very long streets produce a long `wvk_id IN (…)` URL. Fine at observed sizes (21 ids ≈ 400
-  chars), but there's no chunking if a street ever has hundreds of wegvakken.
+- A Damrak result page is ~14,000px tall, and a motorway is far longer (363 table rows for the
+  A10). Some theme cards are repetitive (e.g. Vrachtwagentolheffingsnetwerk prints
+  "Heffingsnetwerk: Nee" 15 times). Collapsing cards by default, paginating the table and deduping
+  single-value themes is the obvious next improvement.
+- The NWB query uses `limit=1000` with no paging. The largest case seen is 363 wegvakken (A10 in
+  Amsterdam), so there's headroom, but a very long road through one municipality could in theory
+  be truncated silently.
+- The WKD and WEGGEG caps mean a motorway's data reflects only part of the road. It's stated in
+  the UI, but a "load the rest" control would be better than a hard cap.

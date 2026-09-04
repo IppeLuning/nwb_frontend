@@ -19,7 +19,17 @@ async function fetchByWvkId<P>(collection: string, wvkId: number, signal?: Abort
 export interface RijkswegDetails {
   maxSnelheden: Map<number, WeggegMaxSnelheidProperties[]>
   rijstroken: Map<number, WeggegRijstrokenProperties[]>
+  /** Aantal wegvakken dat is overgeslagen door de limiet hieronder. */
+  overgeslagen: number
 }
+
+/**
+ * WEGGEG kan maar op één wvk_id tegelijk worden bevraagd, dus elk wegvak kost
+ * twee requests. Een rijksweg binnen één gemeente kan honderden wegvakken
+ * hebben (de A10 in Amsterdam heeft er 363), en die zijn allemaal Rijk-beheerd.
+ * Zonder limiet zouden dat 726 requests zijn, dus wordt er afgekapt.
+ */
+export const MAX_WEGGEG_WEGVAKKEN = 25
 
 /**
  * Fetches highway-only lane and time-variable speed detail for the given wegvakken.
@@ -29,10 +39,11 @@ export interface RijkswegDetails {
 export async function fetchRijkswegDetails(wvkIds: number[], signal?: AbortSignal): Promise<RijkswegDetails> {
   const maxSnelheden = new Map<number, WeggegMaxSnelheidProperties[]>()
   const rijstroken = new Map<number, WeggegRijstrokenProperties[]>()
-  if (wvkIds.length === 0) return { maxSnelheden, rijstroken }
+  const overgeslagen = Math.max(0, wvkIds.length - MAX_WEGGEG_WEGVAKKEN)
+  if (wvkIds.length === 0) return { maxSnelheden, rijstroken, overgeslagen }
 
   const results = await Promise.allSettled(
-    wvkIds.flatMap((wvkId) => [
+    wvkIds.slice(0, MAX_WEGGEG_WEGVAKKEN).flatMap((wvkId) => [
       fetchByWvkId<WeggegMaxSnelheidProperties>('wegvak_max_snelheden', wvkId, signal).then((features) => ({
         wvkId,
         kind: 'snelheid' as const,
@@ -56,5 +67,5 @@ export async function fetchRijkswegDetails(wvkIds: number[], signal?: AbortSigna
     }
   }
 
-  return { maxSnelheden, rijstroken }
+  return { maxSnelheden, rijstroken, overgeslagen }
 }

@@ -7,7 +7,7 @@ import { WkdThemesPanel } from './components/WkdThemesPanel'
 import { RijkswegPanel } from './components/RijkswegPanel'
 import { InfoButton } from './components/InfoButton'
 import { APP_INFO } from './lib/infoTexts'
-import { fetchWegvakken } from './api/nwb'
+import { fetchWegvakkenForPlace } from './api/nwb'
 import { fetchMaxSnelheden } from './api/maxSnelheid'
 import { fetchWkdThemes, type WkdThemeResult } from './api/wkd'
 import { fetchRijkswegDetails, type RijkswegDetails } from './api/weggeg'
@@ -17,7 +17,11 @@ import './App.css'
 
 type Status = 'idle' | 'loading' | 'ready' | 'error'
 
-const EMPTY_RIJKSWEG_DETAILS: RijkswegDetails = { maxSnelheden: new Map(), rijstroken: new Map() }
+const EMPTY_RIJKSWEG_DETAILS: RijkswegDetails = {
+  maxSnelheden: new Map(),
+  rijstroken: new Map(),
+  overgeslagen: 0,
+}
 
 function App() {
   const [place, setPlace] = useState<LookupDoc | null>(null)
@@ -42,26 +46,37 @@ function App() {
     setRijkswegDetails(EMPTY_RIJKSWEG_DETAILS)
 
     try {
-      const result = await fetchWegvakken(doc.straatnaam, doc.gemeentenaam)
+      const result = await fetchWegvakkenForPlace(doc)
       if (token !== searchTokenRef.current) return
       setData(result)
       setStatus('ready')
 
       const wvkIds = result.features.map((f) => f.properties.wvk_id)
-      const rijkWvkIds = result.features
-        .filter((f) => f.properties.wegbehsrt === 'R')
-        .map((f) => f.properties.wvk_id)
+      // WEGGEG wordt afgekapt, dus zet de hoofdrijbanen (bst_code 'HR') vooraan:
+      // die dragen de betekenisvolle rijstrook- en snelheidsconfiguratie.
+      const rijkFeatures = result.features.filter((f) => f.properties.wegbehsrt === 'R')
+      const rijkWvkIds = [
+        ...rijkFeatures.filter((f) => f.properties.bst_code === 'HR'),
+        ...rijkFeatures.filter((f) => f.properties.bst_code !== 'HR'),
+      ].map((f) => f.properties.wvk_id)
 
-      fetchMaxSnelheden(wvkIds).then((m) => {
-        if (token === searchTokenRef.current) setMaxSnelheden(m)
-      })
+      // Deze zijn aanvullend: als er één faalt of afkapt op de time-out blijft
+      // de rest van de pagina gewoon staan. Zonder catch zou een afgebroken
+      // request als unhandled rejection in de console belanden.
+      fetchMaxSnelheden(wvkIds)
+        .then((m) => {
+          if (token === searchTokenRef.current) setMaxSnelheden(m)
+        })
+        .catch(() => {})
       fetchWkdThemes(wvkIds, (theme) => {
         if (token === searchTokenRef.current) setWkdThemes((prev) => [...prev, theme])
-      })
+      }).catch(() => {})
       if (rijkWvkIds.length > 0) {
-        fetchRijkswegDetails(rijkWvkIds).then((details) => {
-          if (token === searchTokenRef.current) setRijkswegDetails(details)
-        })
+        fetchRijkswegDetails(rijkWvkIds)
+          .then((details) => {
+            if (token === searchTokenRef.current) setRijkswegDetails(details)
+          })
+          .catch(() => {})
       }
     } catch {
       if (token !== searchTokenRef.current) return
@@ -108,7 +123,7 @@ function App() {
                 maxSnelheden={maxSnelheden}
               />
               <RijkswegPanel details={rijkswegDetails} />
-              <WkdThemesPanel themes={wkdThemes} />
+              <WkdThemesPanel themes={wkdThemes} totalWegvakken={data.features.length} />
             </>
           )}
         </>

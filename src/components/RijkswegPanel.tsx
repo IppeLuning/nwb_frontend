@@ -1,4 +1,4 @@
-import type { RijkswegDetails } from '../api/weggeg'
+import { MAX_WEGGEG_WEGVAKKEN, type RijkswegDetails } from '../api/weggeg'
 import { RIJKSWEG_PANEL_INFO, RIJSTROKEN_INFO, WEGGEG_SNELHEID_INFO } from '../lib/infoTexts'
 import { InfoButton } from './InfoButton'
 
@@ -17,7 +17,12 @@ export function RijkswegPanel({ details }: RijkswegPanelProps) {
         Rijksweg-detailgegevens (Weggegevens)
         <InfoButton label="Weggegevens (WEGGEG)" text={RIJKSWEG_PANEL_INFO} />
       </h2>
-      <p className="subtitle">Rijstrookconfiguratie en tijdsafhankelijke snelheidslimieten van rijkswegen.</p>
+      <p className="subtitle">
+        Rijstrookconfiguratie en tijdsafhankelijke snelheidslimieten van rijkswegen.
+        {details.overgeslagen > 0 &&
+          ` Alleen de eerste ${MAX_WEGGEG_WEGVAKKEN} wegvakken zijn opgevraagd (hoofdrijbanen eerst); ` +
+            `${details.overgeslagen} overige wegvakken zijn overgeslagen.`}
+      </p>
 
       {hasRijstroken && (
         <div className="rijksweg-block">

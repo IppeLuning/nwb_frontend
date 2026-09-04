@@ -46,6 +46,15 @@ export interface WkdThemeResult {
 }
 
 /**
+ * Alle 26 lagen worden parallel bevraagd. Bij een rijksweg met honderden
+ * wegvakken zou elke laag ook nog eens in meerdere chunks uiteenvallen, wat
+ * neerkomt op ruim honderd gelijktijdige requests — die verdringen elkaar en
+ * lopen tegen de time-out aan, waardoor er juist lagen wegvallen. Daarom wordt
+ * de lijst hier afgekapt op één chunk per laag.
+ */
+export const MAX_WKD_WEGVAKKEN = 120
+
+/**
  * Fetches every WKD theme in parallel, calling `onThemeReady` as soon as each
  * one resolves with a match — most layers answer in a few seconds, and a
  * single slow or timed-out layer shouldn't delay showing the rest. The
@@ -58,10 +67,11 @@ export async function fetchWkdThemes(
   signal?: AbortSignal,
 ): Promise<void> {
   if (wvkIds.length === 0) return
+  const ids = wvkIds.slice(0, MAX_WKD_WEGVAKKEN)
 
   await Promise.allSettled(
     WKD_LAYERS.map(async (layer) => {
-      const collection = await queryArcgisLayer(SERVICE_URL, layer.id, wvkIds, signal)
+      const collection = await queryArcgisLayer(SERVICE_URL, layer.id, ids, signal)
       if (collection.features.length > 0) {
         onThemeReady({ layer, features: collection.features })
       }

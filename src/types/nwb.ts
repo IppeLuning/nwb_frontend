@@ -18,10 +18,13 @@ export interface LookupDoc {
   type: string
   straatnaam: string
   gemeentenaam: string
-  woonplaatsnaam: string
+  /** Null voor rijkswegen: die zijn niet aan een woonplaats gekoppeld. */
+  woonplaatsnaam: string | null
   provincienaam: string
   centroide_ll: string // "POINT(lon lat)"
-  identificatie: string // BAG openbare-ruimte id
+  identificatie: string
+  /** 'BAG/NWB' voor gewone straten, 'NWB' voor wegnummers (A2, N57, ...). */
+  bron: string
 }
 
 export interface LookupResponse {
