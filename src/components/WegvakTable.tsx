@@ -32,6 +32,8 @@ interface WegvakTableProps {
   onToggle: (wvkId: number) => void
   onSetSelected: (wvkIds: number[], selected: boolean) => void
   maxSnelheden: Map<number, MaxSnelheidRecord[]>
+  /** Zolang dit true is betekent een leeg vakje "nog niet opgehaald", niet "geen data". */
+  maxSnelhedenLoading?: boolean
 }
 
 export function WegvakTable({
@@ -40,6 +42,7 @@ export function WegvakTable({
   onToggle,
   onSetSelected,
   maxSnelheden,
+  maxSnelhedenLoading = false,
 }: WegvakTableProps) {
   // Ankerrij voor shift-klik: zo kun je een aaneengesloten stuk weg selecteren.
   const lastToggledIndex = useRef<number | null>(null)
@@ -123,7 +126,13 @@ export function WegvakTable({
                 <td>{formatHuisnummers(p.l_hnr_lnks, p.e_hnr_lnks)}</td>
                 <td>{formatHuisnummers(p.l_hnr_rhts, p.e_hnr_rhts)}</td>
                 <td>{formatLength(p.st_lengthshape)}</td>
-                <td>{formatMaxSnelheid(maxSnelheden.get(p.wvk_id))}</td>
+                <td>
+                  {maxSnelhedenLoading ? (
+                    <span className="muted">laden…</span>
+                  ) : (
+                    formatMaxSnelheid(maxSnelheden.get(p.wvk_id))
+                  )}
+                </td>
                 <td>{p.bronjaar ?? '—'}</td>
               </tr>
             )

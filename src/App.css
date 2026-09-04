@@ -28,6 +28,11 @@ header h1 {
 .street-search {
   position: relative;
   margin-bottom: 24px;
+  /* Boven de kaart: Leaflet gebruikt z-index 400 voor de overlay-pane (waar de
+     wegen worden getekend), 800 voor de zoomknoppen en 1000 voor de
+     control-containers. Zonder dit valt de suggestielijst achter de kaart
+     zodra er al een weg op staat. */
+  z-index: 1100;
 }
 
 .street-search label {
@@ -134,11 +139,338 @@ header h1 {
 /* Map */
 
 .map-wrap {
+  position: relative;
   height: 360px;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   margin-bottom: 20px;
+}
+
+/* Kwast */
+
+.map-wrap.brushing .leaflet-container {
+  cursor: none;
+  /* Anders scrollt of zoomt de pagina mee tijdens het schilderen op touch. */
+  touch-action: none;
+}
+
+.map-tools {
+  position: absolute;
+  z-index: 1000; /* Boven de Leaflet-controls. */
+  top: 8px;
+  right: 8px;
+  width: 148px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  font-size: 12px;
+}
+
+.brush-modes {
+  display: flex;
+  gap: 4px;
+}
+
+.brush-modes button {
+  flex: 1;
+  padding: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-family: var(--sans);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.brush-modes button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.brush-modes button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.brush-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.brush-size input {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.brush-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.brush-cursor {
+  position: absolute;
+  z-index: 900; /* Onder de werkbalk, boven de kaartlagen. */
+  top: 0;
+  left: 0;
+  border: 2px dashed var(--accent);
+  border-radius: 50%;
+  background: var(--accent-bg);
+  /* De transform plaatst het middelpunt op de muis. */
+  translate: -50% -50%;
+  pointer-events: none;
+}
+
+.brush-cursor[data-mode='remove'] {
+  border-color: var(--error);
+  background: transparent;
+}
+
+/* Loading indicators */
+
+.spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 6px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.5s;
+  }
+}
+
+.extra-progress {
+  margin: 0 0 14px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.adding-indicator {
+  margin: -12px 0 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--accent-bg);
+  color: var(--text-h);
+  font-size: 13px;
+}
+
+.road-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.skeleton-line {
+  display: block;
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+  background-size: 300% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line {
+    animation: none;
+  }
+}
+
+/* Road sections (one per opgezochte weg) */
+
+.road-section {
+  margin-bottom: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+/* Roads overview (legenda + samenvatting boven de kaart) */
+
+.roads-overview {
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-x: auto;
+}
+
+.roads-overview h2 {
+  margin: 0;
+  padding: 12px 14px 10px;
+  font-size: 15px;
+}
+
+.roads-overview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.roads-overview th,
+.roads-overview td {
+  padding: 8px 14px;
+  text-align: left;
+  border-top: 1px solid var(--border);
+}
+
+.roads-overview th {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.roads-overview .num {
+  text-align: right;
+}
+
+.roads-overview-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.roads-overview-actions button {
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-family: var(--sans);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.roads-overview-actions button:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.roads-overview-actions .road-remove:hover {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.road-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 14px;
+  padding: 6px 0;
+  border: none;
+  background: none;
+  font-family: var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.road-section-header:hover h2 {
+  color: var(--accent);
+}
+
+.road-chevron {
+  width: 14px;
+  color: var(--text-h);
+  font-size: 15px;
+  line-height: 1;
+  flex: none;
+}
+
+.road-section-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.road-place {
+  color: var(--text);
+  font-weight: 400;
+}
+
+.road-swatch {
+  /* inline-block, anders negeert een tabelcel de afmetingen en zie je niets. */
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  flex: none;
+}
+
+.road-meta {
+  margin-left: auto;
+}
+
+.road-focus {
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-h);
+  font-family: var(--sans);
+  font-size: 12px;
+  cursor: pointer;
+  flex: none;
+}
+
+.road-focus:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.road-remove {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  flex: none;
+}
+
+.road-remove:hover {
+  border-color: var(--error);
+  color: var(--error);
 }
 
 /* Selection bar */
@@ -284,7 +616,8 @@ tbody tr.selected {
 
 .info-popover {
   position: fixed;
-  z-index: 1000;
+  /* Boven zowel de kaart (Leaflet tot 1000) als de zoekbalk hierboven. */
+  z-index: 1200;
   display: block;
   padding: 12px 14px;
   border: 1px solid var(--border);

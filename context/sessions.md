@@ -4,6 +4,9 @@ Reference notes for `nwb_frontend`: what the app does, which public APIs it uses
 non-obvious things we learned by querying those APIs directly. Written so a new session (human or
 Claude) can pick the project up without re-deriving all of it.
 
+These notes are in English. Dutch is kept only where it *is* the data: field names (`stt_naam`),
+domain terms (wegvak, gemeente, rijksweg), code-table values, and quoted UI strings.
+
 Last updated: 2026-09-04
 
 ---
@@ -30,14 +33,14 @@ junctions or other break points. One street is almost always several wegvakken, 
 `wvk_id`. Every other dataset in this app joins onto that `wvk_id`.
 
 ```
-straatnaam → (Locatieserver) → exacte straatnaam + gemeente
-           → (NWB)           → wegvakken, elk met een wvk_id
-           → (WKD / max-snelheden / WEGGEG, gekoppeld op wvk_id)
+straatnaam → (Locatieserver) → exact straatnaam + gemeente
+           → (NWB)           → wegvakken, each with a wvk_id
+           → (WKD / max-snelheden / WEGGEG, joined on wvk_id)
 ```
 
 Two related concepts that show up everywhere:
 
-- **Dynamische segmentatie.** A characteristic often applies to only *part* of a wegvak. `VAN` and
+- **Dynamic segmentation.** A characteristic often applies to only *part* of a wegvak. `VAN` and
   `TOT` (sometimes `begafstand`/`endafstand`) are distances in metres from the start of the wegvak.
   This is why one street yields many records with different values — e.g. several different road
   widths, because the road really does change width along its length.
@@ -194,7 +197,15 @@ These cost real debugging time; don't rediscover them.
    fails. `queryArcgisLayer` therefore chunks at **120 ids** per request and merges the results.
    This only shows up on motorways — the A10 in Amsterdam is 363 wegvakken.
 
-7. **Big roads need request budgets, or they starve themselves.** With 363 wegvakken, 26 WKD
+7. **Leaflet's z-index beats anything you forget to raise.** Leaflet uses 400 for the overlay pane
+   (where the road lines are drawn), 800 for the zoom buttons and 1000 for the control containers.
+   The suggestions dropdown sat at `z-index: 10` and so disappeared behind the map as soon as a
+   road was on it — you could see road lines and the +/− buttons straight through the dropdown.
+   `.street-search` is now 1100 and `.info-popover` 1200. Probe this with
+   `document.elementsFromPoint()` at several points, not just the centre: over an empty patch of
+   map the problem looks like it isn't there.
+
+8. **Big roads need request budgets, or they starve themselves.** With 363 wegvakken, 26 WKD
    layers × 4 chunks = 104 concurrent requests; they queue behind each other, blow the 12s
    timeout, and *fewer* themes end up rendering than if you'd asked for less. Current budgets:
    WKD is capped at `MAX_WKD_WEGVAKKEN = 120` ids (one chunk per layer) and WEGGEG at
@@ -211,13 +222,14 @@ Confirmed against the NWB/WKD documentation on `docs.ndw.nu` — not guessed.
 **`WEGBEHSRT`** (road authority): `R` Rijk · `P` Provincie · `G` Gemeente · `W` Waterschap ·
 `T` Particulier
 
-**`RIJRICHTNG`**: `H` heen · `T` terug · `B` beide richtingen · `O` onbekend
+**`RIJRICHTNG`**: `H` heen (forward) · `T` terug (reverse) · `B` beide richtingen (both) ·
+`O` onbekend (unknown)
 
 **`verkeerstypen`** — per vehicle type there are `_H` (heen) and `_T` (terug) fields, value `j`
 (ja, allowed) or `n` (nee, not allowed), derived from the traffic-sign register:
-`vtgngr` voetganger · `fiets` · `snrfts` snorfiets · `brmfts` bromfiets · `mtrfts` motorfiets ·
-`auto` personenauto · `aanhngr` met aanhanger · `vrchtt` vrachtauto · `autobs` autobus ·
-`lndbw` landbouwvoertuig
+`vtgngr` voetganger (pedestrian) · `fiets` (bicycle) · `snrfts` snorfiets · `brmfts` bromfiets ·
+`mtrfts` motorfiets (motorcycle) · `auto` personenauto (car) · `aanhngr` met aanhanger (trailer) ·
+`vrchtt` vrachtauto (truck) · `autobs` autobus (bus) · `lndbw` landbouwvoertuig (farm vehicle)
 
 **`wegbreedte`** — width is measured with scan lines laid perpendicular to the wegvak every 10 m.
 `BREEDTE` is the **median** of those measurements (median so one outlier doesn't skew it);
@@ -241,34 +253,43 @@ src/
     weggeg.ts          fetchRijkswegDetails() — rijkswegen only
   components/
     StreetSearch.tsx   debounced autocomplete (300ms, AbortController per keystroke)
+    RoadsOverview.tsx  compact table of all roads (legend, counts, actions)
+    RoadSection.tsx    one road in the stack: collapsible header + detail panels
     StreetSummary.tsx  aggregated card
-    StreetMap.tsx      react-leaflet + PDOK BRT tiles, click-to-highlight
-    WegvakTable.tsx    per-segment table incl. speed-limit column + selectievakjes
-    SelectionBar.tsx   selectietelling/lengte, alles/wissen, wegvak-id's kopiëren
+    StreetMap.tsx      react-leaflet + PDOK BRT tiles, all roads at once, click-to-select
+    WegvakTable.tsx    per-segment table incl. speed-limit column + checkboxes
+    SelectionBar.tsx   selection count/length, select-all/clear, copy wvk_ids
     WkdThemesPanel.tsx one card per matched WKD theme
     RijkswegPanel.tsx  WEGGEG lanes + time-based limits (conditional)
     InfoButton.tsx     reusable "ⓘ" popover (position:fixed to escape table scroll)
   lib/
     fieldLabels.ts     code tables, field-name translations, j/n → Ja/Nee, formatters
     infoTexts.ts       all explanation copy, sourced from official documentation
-  types/               nwb.ts · arcgis.ts · weggeg.ts
+    roadColors.ts      palette + nextRoadColor() for the road stack
+  types/               nwb.ts · arcgis.ts · weggeg.ts · road.ts
 ```
 
 `App.tsx` orchestrates: search → lookup → `fetchWegvakken` → then fans out the three extra fetches
-using the resulting `wvk_id`s, guarded by a `searchTokenRef` so a stale response can't overwrite a
-newer search.
+using the resulting `wvk_id`s.
 
-**Selectie.** `App.tsx` houdt een `Set<number>` van geselecteerde `wvk_id`s bij (niet de GeoJSON
-feature-id — `wvk_id` is de sleutel waarmee alle bronnen koppelen, dus dat is wat je verder wilt
-gebruiken). Kaart en tabel delen die state, dus ze blijven altijd in sync. Twee dingen om te weten
-bij wijzigingen:
+**Road stack.** `App.tsx` keeps a `RoadEntry[]` (see `src/types/road.ts`): every road looked up has
+its own colour, its own wegvakken, and its own WKD/WEGGEG/speed data. Searching *adds* a road
+rather than replacing one, and all roads sit on a single map together. The map fits to everything
+whenever a road is added or removed; because roads can be far apart (Amsterdam + Friesland gives a
+uselessly zoomed-out map) each road also has an "Inzoomen" (zoom-to) button. Removing a road also
+drops its wegvakken from the selection.
 
-- De kaartlaag wordt **niet** geremount bij selectie. `react-leaflet`'s `<GeoJSON>` past een
-  gewijzigde `style`-prop na mount niet meer toe, dus de eerste versie forceerde een remount via
-  `key`. Bij 363 features is dat te traag; nu wordt er via een ref imperatief `setStyle` aangeroepen
-  per laag (gemeten: 32 ms voor één klik, 31 ms voor alle 363 tegelijk).
-- De klikhandler wordt één keer per feature gebonden, dus `onToggle` wordt via een ref gelezen —
-  anders vangt de closure een verouderde selectie.
+**Selection.** `App.tsx` keeps a `Set<number>` of selected `wvk_id`s (not the GeoJSON feature id —
+`wvk_id` is the key every source joins on, so it's what you'll want downstream). That set spans all
+roads: `wvk_id` is nationally unique, so you can select parts of several roads at once. Map and
+tables share the state, so they stay in sync. Two things to know before changing it:
+
+- The map layer is **not** remounted on selection. `react-leaflet`'s `<GeoJSON>` doesn't re-apply a
+  changed `style` prop after mount, so the first version forced a remount via `key`. At 363
+  features that's far too slow; now `setStyle` is called imperatively per layer through a ref
+  (measured: 32 ms for one click, 31 ms to select all 363).
+- The click handler is bound once per feature, so `onToggle` is read through a ref — otherwise the
+  closure captures a stale selection.
 
 ---
 
@@ -280,9 +301,9 @@ Fixed a bug where selecting a suggestion re-triggered the autocomplete effect an
 dropdown (`skipNextSearchRef`).
 
 **Session 2 — more data sources.** Added the RWS speed-limit layer (new table column), all 26 WKD
-themes (new panel), and WEGGEG rijksweg details (conditional panel). Found and fixed the hanging-request
-bug (added `fetchWithTimeout`), and switched WKD from one batched state update to incremental
-rendering so a slow layer doesn't block the rest.
+themes (new panel), and WEGGEG rijksweg details (conditional panel). Found and fixed the
+hanging-request bug (added `fetchWithTimeout`), and switched WKD from one batched state update to
+incremental rendering so a slow layer doesn't block the rest.
 
 **Session 3 — explanations.** Added `InfoButton` throughout (~29 per result page: header, all 6
 summary fields, all 11 table columns, all 26 WKD themes, both WEGGEG sections). Decoded the cryptic
@@ -297,12 +318,40 @@ exposed two follow-on limits — the ~2048-char ArcGIS query string (fixed with 
 request-storm starvation on big roads (fixed with the WKD/WEGGEG budgets) — and one unhandled
 `AbortError` from an uncaught rejection on the supplementary fetches.
 
-**Session 5 — meervoudige selectie.** Selectie ging van één wegvak naar een `Set` van wegvakken,
-als opstap naar het selecteren van specifieke delen van een weg. Klikken in de tabel of op de kaart
-zet een wegvak aan/uit, shift-klik selecteert een aaneengesloten reeks rijen, en er is een
-selectiebalk met aantal + opgetelde lengte, "alles selecteren", "selectie wissen" en het kopiëren
-van de geselecteerde `wvk_id`s naar het klembord. Niet-geselecteerde wegvakken vervagen op de kaart
-zodra er iets geselecteerd is.
+**Session 5 — multi-select.** Selection went from a single wegvak to a `Set` of wegvakken, as a
+step towards selecting specific parts of a road. Clicking in the table or on the map toggles a
+wegvak; shift-click selects a contiguous run of rows. A selection bar shows the count and summed
+length, with "Alles selecteren", "Selectie wissen", and copying the selected `wvk_id`s to the
+clipboard. Unselected wegvakken dim on the map as soon as anything is selected.
+
+**Session 6 — stacking roads.** Searching no longer replaces the displayed road but adds one:
+several roads sit on the map at once, each in its own colour, each with its own section (summary,
+table, WKD, WEGGEG) and a button to remove it. The search box clears itself after adding so you can
+keep searching. Selection works across roads. Because fitting to roads in different provinces gives
+an unusable map, each road got an "Inzoomen" button.
+
+**Session 7 — loading indication.** Adding a road felt slow, especially the second one: the
+wegvakken alone take ~4 seconds, and dozens of requests keep running afterwards with nothing to
+show for it. Added a skeleton in the road section while wegvakken load, a per-road progress line
+("Nog bezig met snelheidslimieten, wegkenmerken…"), a counter in the WKD block ("14 van 26 lagen
+opgehaald…") via a new `onProgress` callback in `fetchWkdThemes`, and "laden…" instead of "—" in
+the speed column — which had read as "no limit" rather than "not fetched yet".
+
+The main lesson came from testing: the skeleton *was* rendering, but for a second road that section
+is already below the fold. You look at the search box and see nothing happen. Hence the
+"… toevoegen…" line directly under the search box. Loading indication belongs where the user is
+looking, not where the data lands.
+
+**Session 8 — overview instead of details.** With several roads you had to scroll past road 1's
+entire detail block before discovering road 2 existed. There's now a `RoadsOverview` directly under
+the search box: a compact table with, per road, its colour (doubling as the map legend), gemeente,
+number of wegvakken, length, number of selected wegvakken, and the "Inzoomen" and remove buttons.
+The road sections below are **collapsed by default** and expand one at a time. That also fixed the
+long-standing endless-page problem: one road went from ~14,500 px to ~960 px, and three roads fit
+in ~1,200 px.
+
+Note when testing: browser tests that read the table or the WKD panels must click
+`.road-section-header` first, otherwise those elements aren't in the DOM.
 
 ---
 
@@ -337,10 +386,13 @@ requests, and rendered DOM. Watch the network tab for CORS errors on both PDOK a
 
 ## 10. Known rough edges
 
-- A Damrak result page is ~14,000px tall, and a motorway is far longer (363 table rows for the
-  A10). Some theme cards are repetitive (e.g. Vrachtwagentolheffingsnetwerk prints
-  "Heffingsnetwerk: Nee" 15 times). Collapsing cards by default, paginating the table and deduping
-  single-value themes is the obvious next improvement.
+- An *expanded* road section is still very long (363 table rows for the A10), and some theme cards
+  are repetitive (Vrachtwagentolheffingsnetwerk prints "Heffingsnetwerk: Nee" 15 times). Paginating
+  the table and deduping single-value themes would be the next improvement. Collapsing by default
+  (session 8) already fixed the default page length.
+- WKD, speed and WEGGEG data is fetched **eagerly** for every road, even though sections are now
+  collapsed by default. Fetching on expand would genuinely speed up adding roads, rather than only
+  reporting progress — the collapse work makes this straightforward now.
 - The NWB query uses `limit=1000` with no paging. The largest case seen is 363 wegvakken (A10 in
   Amsterdam), so there's headroom, but a very long road through one municipality could in theory
   be truncated silently.

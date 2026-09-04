@@ -1,4 +1,4 @@
-import type { MaxSnelheidRecord } from '../types/arcgis'
+import type { ArcgisFeature, MaxSnelheidRecord } from '../types/arcgis'
 
 // Code tables confirmed against the NWB attribute documentation (NDW docs).
 
@@ -28,6 +28,66 @@ export function rijrichtngLabel(code: string): string {
 export function formatLength(meters: number | null | undefined): string {
   if (meters == null) return '—'
   return meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${Math.round(meters)} m`
+}
+
+export interface BreedteSamenvatting {
+  /** Lengtegewogen gemiddelde breedte in meters. */
+  gemiddeld: number
+  /** Smalste en breedste meting binnen de selectie. */
+  min: number
+  max: number
+  /** Meters waarvoor een breedte bekend is — de rest is 'onbekend' of ontbreekt. */
+  bekendeMeters: number
+}
+
+/** Lengte van één WKD-breedtestuk; de meting geldt per stuk van 'van' tot 'tot'. */
+function breedteStukLengte(props: Record<string, unknown>): number {
+  const shape = Number(props['st_length(shape)'])
+  if (Number.isFinite(shape) && shape > 0) return shape
+  const van = Number(props.van)
+  const tot = Number(props.tot)
+  return Number.isFinite(van) && Number.isFinite(tot) ? Math.max(0, tot - van) : 0
+}
+
+/**
+ * Vat de WKD-wegbreedtes van een aantal wegvakken samen tot één breedte. De
+ * breedte staat per stuk wegvak en varieert over een straat, dus wegen lange
+ * stukken zwaarder mee dan korte. Stukken zonder meting ('onbekend') tellen
+ * niet mee; `bekendeMeters` laat zien hoeveel de uitkomst dan nog dekt.
+ */
+export function summarizeBreedte(
+  features: ArcgisFeature[] | undefined,
+  wvkIds: Set<number>,
+): BreedteSamenvatting | null {
+  if (!features || features.length === 0) return null
+
+  let gewogenSom = 0
+  let meters = 0
+  let min = Infinity
+  let max = -Infinity
+
+  for (const feature of features) {
+    const props = feature.properties as Record<string, unknown>
+    if (!wvkIds.has(Number(props.wvk_id))) continue
+    // 'onbekend' wordt NaN — precies de stukken die we willen overslaan.
+    const breedte = Number(props.breedte)
+    if (!Number.isFinite(breedte) || breedte <= 0) continue
+    const lengte = breedteStukLengte(props)
+    if (lengte <= 0) continue
+
+    gewogenSom += breedte * lengte
+    meters += lengte
+    min = Math.min(min, Number(props.brdt_min) || breedte)
+    max = Math.max(max, Number(props.brdt_max) || breedte)
+  }
+
+  if (meters === 0) return null
+  return { gemiddeld: gewogenSom / meters, min, max, bekendeMeters: meters }
+}
+
+export function formatBreedte(meters: number | null | undefined): string {
+  if (meters == null) return '—'
+  return `${meters.toFixed(1)} m`
 }
 
 /** House-number range on one side of the road, e.g. "5–29" or "—" if unknown. */

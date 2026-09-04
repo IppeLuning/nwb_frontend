@@ -1,22 +1,19 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { StreetSearch } from './components/StreetSearch'
-import { StreetSummary } from './components/StreetSummary'
-import { StreetMap } from './components/StreetMap'
-import { WegvakTable } from './components/WegvakTable'
+import { StreetMap, type FocusRequest } from './components/StreetMap'
 import { SelectionBar } from './components/SelectionBar'
-import { WkdThemesPanel } from './components/WkdThemesPanel'
-import { RijkswegPanel } from './components/RijkswegPanel'
+import { RoadSection } from './components/RoadSection'
+import { RoadsOverview } from './components/RoadsOverview'
 import { InfoButton } from './components/InfoButton'
 import { APP_INFO } from './lib/infoTexts'
+import { nextRoadColor } from './lib/roadColors'
 import { fetchWegvakkenForPlace } from './api/nwb'
 import { fetchMaxSnelheden } from './api/maxSnelheid'
-import { fetchWkdThemes, type WkdThemeResult } from './api/wkd'
+import { fetchWkdThemes } from './api/wkd'
 import { fetchRijkswegDetails, type RijkswegDetails } from './api/weggeg'
-import type { LookupDoc, WegvakFeatureCollection } from './types/nwb'
-import type { MaxSnelheidRecord } from './types/arcgis'
+import type { LookupDoc } from './types/nwb'
+import type { RoadEntry } from './types/road'
 import './App.css'
-
-type Status = 'idle' | 'loading' | 'ready' | 'error'
 
 const EMPTY_RIJKSWEG_DETAILS: RijkswegDetails = {
   maxSnelheden: new Map(),
@@ -25,18 +22,10 @@ const EMPTY_RIJKSWEG_DETAILS: RijkswegDetails = {
 }
 
 function App() {
-  const [place, setPlace] = useState<LookupDoc | null>(null)
-  const [data, setData] = useState<WegvakFeatureCollection | null>(null)
-  const [status, setStatus] = useState<Status>('idle')
-  /** Geselecteerde wegvakken, op wvk_id — de sleutel waarmee alle bronnen koppelen. */
+  /** De stapel opgezochte wegen; ze staan allemaal tegelijk op de kaart. */
+  const [roads, setRoads] = useState<RoadEntry[]>([])
+  /** Geselecteerde wegvakken, op wvk_id — uniek over alle wegen heen. */
   const [selectedWvkIds, setSelectedWvkIds] = useState<Set<number>>(new Set())
-
-  const [maxSnelheden, setMaxSnelheden] = useState<Map<number, MaxSnelheidRecord[]>>(new Map())
-  const [wkdThemes, setWkdThemes] = useState<WkdThemeResult[]>([])
-  const [rijkswegDetails, setRijkswegDetails] = useState<RijkswegDetails>(EMPTY_RIJKSWEG_DETAILS)
-
-  // Guards the extra (WKD/speed/rijksweg) fetches against a stale search overwriting a newer one.
-  const searchTokenRef = useRef(0)
 
   const toggleWegvak = useCallback((wvkId: number) => {
     setSelectedWvkIds((prev) => {
@@ -60,22 +49,59 @@ function App() {
 
   const clearSelection = useCallback(() => setSelectedWvkIds(new Set()), [])
 
+  // Wegen kunnen ver uit elkaar liggen; dan is uitzoomen naar alles onbruikbaar
+  // en wil je op één weg kunnen inzoomen.
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null)
+  const focusRoad = useCallback((roadId: string) => {
+    setFocusRequest((prev) => ({ roadId, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [])
+
+  /** Werkt één weg in de stapel bij, mits die er nog in zit (kan verwijderd zijn). */
+  const updateRoad = useCallback((roadId: string, patch: (road: RoadEntry) => RoadEntry) => {
+    setRoads((prev) => prev.map((r) => (r.id === roadId ? patch(r) : r)))
+  }, [])
+
+  const removeRoad = useCallback((roadId: string) => {
+    setRoads((prev) => {
+      const road = prev.find((r) => r.id === roadId)
+      if (road) {
+        // Laat geen selectie achter van wegvakken die niet meer zichtbaar zijn.
+        const gone = new Set(road.features.map((f) => f.properties.wvk_id))
+        setSelectedWvkIds((sel) => new Set([...sel].filter((id) => !gone.has(id))))
+      }
+      return prev.filter((r) => r.id !== roadId)
+    })
+  }, [])
+
   async function handleSelect(doc: LookupDoc) {
-    const token = ++searchTokenRef.current
-    setPlace(doc)
-    setSelectedWvkIds(new Set())
-    setStatus('loading')
-    setMaxSnelheden(new Map())
-    setWkdThemes([])
-    setRijkswegDetails(EMPTY_RIJKSWEG_DETAILS)
+    // Dezelfde weg niet twee keer aan de stapel toevoegen.
+    if (roads.some((r) => r.id === doc.id)) return
+
+    setRoads((prev) => [
+      ...prev,
+      {
+        id: doc.id,
+        place: doc,
+        color: nextRoadColor(prev.map((r) => r.color)),
+        status: 'loading',
+        features: [],
+        maxSnelheden: new Map(),
+        wkdThemes: [],
+        rijkswegDetails: EMPTY_RIJKSWEG_DETAILS,
+        loading: { maxSnelheden: true, rijksweg: true, wkdDone: 0, wkdTotal: 0 },
+      },
+    ])
 
     try {
       const result = await fetchWegvakkenForPlace(doc)
-      if (token !== searchTokenRef.current) return
-      setData(result)
-      setStatus('ready')
+      updateRoad(doc.id, (r) => ({ ...r, status: 'ready', features: result.features }))
 
       const wvkIds = result.features.map((f) => f.properties.wvk_id)
+      // Een nieuwe weg komt volledig geselecteerd binnen: meestal wil je de hele
+      // weg, en met de kwast haal je er sneller stukken uit dan dat je ze er
+      // stuk voor stuk bij klikt.
+      setWegvakkenSelected(wvkIds, true)
+
       // WEGGEG wordt afgekapt, dus zet de hoofdrijbanen (bst_code 'HR') vooraan:
       // die dragen de betekenisvolle rijstrook- en snelheidsconfiguratie.
       const rijkFeatures = result.features.filter((f) => f.properties.wegbehsrt === 'R')
@@ -86,28 +112,41 @@ function App() {
 
       // Deze zijn aanvullend: als er één faalt of afkapt op de time-out blijft
       // de rest van de pagina gewoon staan. Zonder catch zou een afgebroken
-      // request als unhandled rejection in de console belanden.
+      // request als unhandled rejection in de console belanden. updateRoad is
+      // een no-op als de weg intussen is verwijderd.
       fetchMaxSnelheden(wvkIds)
-        .then((m) => {
-          if (token === searchTokenRef.current) setMaxSnelheden(m)
-        })
+        .then((m) => updateRoad(doc.id, (r) => ({ ...r, maxSnelheden: m })))
         .catch(() => {})
-      fetchWkdThemes(wvkIds, (theme) => {
-        if (token === searchTokenRef.current) setWkdThemes((prev) => [...prev, theme])
-      }).catch(() => {})
+        .finally(() =>
+          updateRoad(doc.id, (r) => ({ ...r, loading: { ...r.loading, maxSnelheden: false } })),
+        )
+
+      fetchWkdThemes(
+        wvkIds,
+        (theme) => updateRoad(doc.id, (r) => ({ ...r, wkdThemes: [...r.wkdThemes, theme] })),
+        undefined,
+        (done, total) =>
+          updateRoad(doc.id, (r) => ({ ...r, loading: { ...r.loading, wkdDone: done, wkdTotal: total } })),
+      ).catch(() => {})
+
       if (rijkWvkIds.length > 0) {
         fetchRijkswegDetails(rijkWvkIds)
-          .then((details) => {
-            if (token === searchTokenRef.current) setRijkswegDetails(details)
-          })
+          .then((details) => updateRoad(doc.id, (r) => ({ ...r, rijkswegDetails: details })))
           .catch(() => {})
+          .finally(() => updateRoad(doc.id, (r) => ({ ...r, loading: { ...r.loading, rijksweg: false } })))
+      } else {
+        updateRoad(doc.id, (r) => ({ ...r, loading: { ...r.loading, rijksweg: false } }))
       }
     } catch {
-      if (token !== searchTokenRef.current) return
-      setData(null)
-      setStatus('error')
+      updateRoad(doc.id, (r) => ({
+        ...r,
+        status: 'error',
+        loading: { maxSnelheden: false, rijksweg: false, wkdDone: 0, wkdTotal: 0 },
+      }))
     }
   }
+
+  const allFeatures = roads.flatMap((r) => r.features)
 
   return (
     <div className="app">
@@ -118,45 +157,55 @@ function App() {
         </h1>
         <p className="subtitle">
           Alle gegevens die het Nationaal Wegenbestand en aanverwante Rijkswaterstaat-databases kennen over een
-          straat — alleen op basis van de straatnaam.
+          straat — alleen op basis van de straatnaam. Zoek meerdere wegen om ze samen op de kaart te zetten.
         </p>
       </header>
 
-      <StreetSearch onSelect={handleSelect} disabled={status === 'loading'} />
+      <StreetSearch onSelect={handleSelect} />
 
-      {status === 'loading' && <p className="status-text">Wegvakken ophalen…</p>}
-      {status === 'error' && <p className="error-text">Er ging iets mis bij het ophalen van de gegevens.</p>}
+      {/* Vlak onder de zoekbalk, want de sectie van de nieuwe weg staat bij een
+          tweede weg al onder de vouw — daar zie je een spinner dus niet. */}
+      {roads.some((r) => r.status === 'loading') && (
+        <p className="adding-indicator" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          {roads
+            .filter((r) => r.status === 'loading')
+            .map((r) => r.place.straatnaam)
+            .join(', ')}{' '}
+          toevoegen…
+        </p>
+      )}
 
-      {status === 'ready' && place && data && (
+      {roads.length > 0 && (
         <>
-          {data.features.length === 0 ? (
-            <p className="status-text">Geen wegvakken gevonden in het NWB voor deze straat.</p>
-          ) : (
-            <>
-              <StreetSummary place={place} features={data.features} />
-              <StreetMap
-                datasetKey={`${place.gemeentenaam}-${place.straatnaam}`}
-                data={data}
-                selectedWvkIds={selectedWvkIds}
-                onToggle={toggleWegvak}
-              />
-              <SelectionBar
-                features={data.features}
-                selectedWvkIds={selectedWvkIds}
-                onSetSelected={setWegvakkenSelected}
-                onClear={clearSelection}
-              />
-              <WegvakTable
-                features={data.features}
-                selectedWvkIds={selectedWvkIds}
-                onToggle={toggleWegvak}
-                onSetSelected={setWegvakkenSelected}
-                maxSnelheden={maxSnelheden}
-              />
-              <RijkswegPanel details={rijkswegDetails} />
-              <WkdThemesPanel themes={wkdThemes} totalWegvakken={data.features.length} />
-            </>
-          )}
+          <RoadsOverview
+            roads={roads}
+            selectedWvkIds={selectedWvkIds}
+            onFocus={focusRoad}
+            onRemove={removeRoad}
+          />
+          <StreetMap
+            roads={roads}
+            selectedWvkIds={selectedWvkIds}
+            onToggle={toggleWegvak}
+            onSetSelected={setWegvakkenSelected}
+            focusRequest={focusRequest}
+          />
+          <SelectionBar
+            features={allFeatures}
+            selectedWvkIds={selectedWvkIds}
+            onSetSelected={setWegvakkenSelected}
+            onClear={clearSelection}
+          />
+          {roads.map((road) => (
+            <RoadSection
+              key={road.id}
+              road={road}
+              selectedWvkIds={selectedWvkIds}
+              onToggle={toggleWegvak}
+              onSetSelected={setWegvakkenSelected}
+            />
+          ))}
         </>
       )}
     </div>

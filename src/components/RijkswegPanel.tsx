@@ -4,12 +4,14 @@ import { InfoButton } from './InfoButton'
 
 interface RijkswegPanelProps {
   details: RijkswegDetails
+  loading?: boolean
 }
 
-export function RijkswegPanel({ details }: RijkswegPanelProps) {
+export function RijkswegPanel({ details, loading = false }: RijkswegPanelProps) {
   const hasRijstroken = details.rijstroken.size > 0
   const hasMaxSnelheden = details.maxSnelheden.size > 0
-  if (!hasRijstroken && !hasMaxSnelheden) return null
+  // Nog niets binnen en niets meer onderweg: deze weg heeft geen WEGGEG-data.
+  if (!hasRijstroken && !hasMaxSnelheden && !loading) return null
 
   return (
     <section className="rijksweg-panel">
@@ -23,6 +25,13 @@ export function RijkswegPanel({ details }: RijkswegPanelProps) {
           ` Alleen de eerste ${MAX_WEGGEG_WEGVAKKEN} wegvakken zijn opgevraagd (hoofdrijbanen eerst); ` +
             `${details.overgeslagen} overige wegvakken zijn overgeslagen.`}
       </p>
+
+      {loading && !hasRijstroken && !hasMaxSnelheden && (
+        <p className="extra-progress" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          Rijksweggegevens ophalen…
+        </p>
+      )}
 
       {hasRijstroken && (
         <div className="rijksweg-block">

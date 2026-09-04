@@ -9,10 +9,21 @@ interface WkdThemesPanelProps {
   themes: WkdThemeResult[]
   /** Totaal aantal wegvakken van de straat, om te melden of er is afgekapt. */
   totalWegvakken: number
+  loadingDone?: number
+  loadingTotal?: number
 }
 
-export function WkdThemesPanel({ themes, totalWegvakken }: WkdThemesPanelProps) {
-  if (themes.length === 0) return null
+export function WkdThemesPanel({
+  themes,
+  totalWegvakken,
+  loadingDone = 0,
+  loadingTotal = 0,
+}: WkdThemesPanelProps) {
+  const stillLoading = loadingTotal === 0 || loadingDone < loadingTotal
+
+  // Tijdens het laden alvast de kop tonen, anders lijkt het alsof deze weg
+  // helemaal geen wegkenmerken heeft.
+  if (themes.length === 0 && !stillLoading) return null
 
   // Themes arrive incrementally as each of the 26 requests settles — sort by
   // layer id so cards slot into a stable position instead of jumping around.
@@ -29,6 +40,14 @@ export function WkdThemesPanel({ themes, totalWegvakken }: WkdThemesPanelProps) 
         {totalWegvakken > MAX_WKD_WEGVAKKEN &&
           ` Opgevraagd voor de eerste ${MAX_WKD_WEGVAKKEN} van ${totalWegvakken} wegvakken.`}
       </p>
+      {stillLoading && (
+        <p className="extra-progress" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          {loadingTotal > 0
+            ? `${loadingDone} van ${loadingTotal} lagen opgehaald…`
+            : 'Lagen ophalen…'}
+        </p>
+      )}
       <div className="wkd-theme-grid">
         {sorted.map(({ layer, features }) => (
           <article key={layer.id} className="wkd-theme-card">

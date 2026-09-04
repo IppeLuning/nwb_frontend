@@ -65,15 +65,23 @@ export async function fetchWkdThemes(
   wvkIds: number[],
   onThemeReady: (result: WkdThemeResult) => void,
   signal?: AbortSignal,
+  /** Wordt na elke afgehandelde laag aangeroepen — ook als die niets opleverde. */
+  onProgress?: (done: number, total: number) => void,
 ): Promise<void> {
   if (wvkIds.length === 0) return
   const ids = wvkIds.slice(0, MAX_WKD_WEGVAKKEN)
+  let done = 0
 
   await Promise.allSettled(
     WKD_LAYERS.map(async (layer) => {
-      const collection = await queryArcgisLayer(SERVICE_URL, layer.id, ids, signal)
-      if (collection.features.length > 0) {
-        onThemeReady({ layer, features: collection.features })
+      try {
+        const collection = await queryArcgisLayer(SERVICE_URL, layer.id, ids, signal)
+        if (collection.features.length > 0) {
+          onThemeReady({ layer, features: collection.features })
+        }
+      } finally {
+        done += 1
+        onProgress?.(done, WKD_LAYERS.length)
       }
     }),
   )

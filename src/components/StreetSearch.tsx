@@ -52,7 +52,9 @@ export function StreetSearch({ onSelect, disabled }: StreetSearchProps) {
     setOpen(false)
     setSuggestions([])
     skipNextSearchRef.current = true
-    setQuery(doc.weergavenaam)
+    // Leegmaken in plaats van invullen: je voegt wegen aan een stapel toe, dus
+    // het invoerveld staat meteen klaar voor de volgende.
+    setQuery('')
     try {
       const full = await lookupStreet(doc.id)
       onSelect(full)
@@ -63,7 +65,7 @@ export function StreetSearch({ onSelect, disabled }: StreetSearchProps) {
 
   return (
     <div className="street-search">
-      <label htmlFor="street-input">Straatnaam</label>
+      <label htmlFor="street-input">Weg toevoegen</label>
       <input
         id="street-input"
         type="text"

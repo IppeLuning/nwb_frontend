@@ -24,11 +24,7 @@ export function StreetSummary({ place, features }: StreetSummaryProps) {
 
   return (
     <section className="summary-card">
-      <h2>
-        {place.straatnaam}
-        {/* Rijkswegen (A2, N57, ...) hebben geen woonplaats. */}
-        {place.woonplaatsnaam && <span className="summary-place">, {place.woonplaatsnaam}</span>}
-      </h2>
+      {/* De naam van de weg staat in de kop van de RoadSection hierboven. */}
       <dl className="summary-grid">
         {entries.map(([label, value]) => (
           <div key={label}>

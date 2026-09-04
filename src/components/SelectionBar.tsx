@@ -37,7 +37,9 @@ export function SelectionBar({ features, selectedWvkIds, onSetSelected, onClear 
     <div className="selection-bar">
       <span className="selection-count">
         {selected.length === 0 ? (
-          <span className="muted">Geen wegvakken geselecteerd — klik op de kaart of in de tabel</span>
+          <span className="muted">
+            Geen wegvakken geselecteerd — klik of schilder op de kaart, of vink ze aan in de tabel
+          </span>
         ) : (
           <>
             <strong>{selected.length}</strong> van {features.length} wegvakken geselecteerd ·{' '}
